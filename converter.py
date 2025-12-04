@@ -5,7 +5,7 @@ import argparse
 import win32com.client
 from pathlib import Path
 
-def convert_ppt_to_pdf(target_folder):
+def convert_ppt_to_pdf(target_folder, output_folder=None):
     """
     指定フォルダ内のPowerPointファイルをPDFに変換します。
     """
@@ -28,7 +28,11 @@ def convert_ppt_to_pdf(target_folder):
 
     for file_path in files:
         abs_path = str(file_path.resolve())
-        pdf_path = str(file_path.with_suffix('.pdf').resolve())
+        
+        if output_folder:
+            pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
+        else:
+            pdf_path = str(file_path.with_suffix('.pdf').resolve())
 
         try:
             # 既にPDFが存在する場合はスキップ（上書きしたい場合はコメントアウト）
@@ -49,11 +53,11 @@ def convert_ppt_to_pdf(target_folder):
     print("--- PowerPoint変換終了 ---\n")
 
 
-def convert_excel_to_pdf(target_folder):
+def convert_excel_to_pdf(target_folder, output_folder=None):
     """
     指定フォルダ内のExcelファイルをPDFに変換します。
+    ※印刷範囲設定を反映し、全シートを1つのPDFに出力します。
     """
-    # 検索パターン（.xlsx と .xls）
     files = list(Path(target_folder).glob("*.xlsx")) + list(Path(target_folder).glob("*.xls"))
     
     if not files:
@@ -65,14 +69,18 @@ def convert_excel_to_pdf(target_folder):
     try:
         excel = win32com.client.Dispatch("Excel.Application")
         excel.Visible = False
-        excel.DisplayAlerts = False # 保存時の警告ダイアログ等を抑制
+        excel.DisplayAlerts = False
     except Exception as e:
         print(f"Excelの起動に失敗しました: {e}")
         return
 
     for file_path in files:
         abs_path = str(file_path.resolve())
-        pdf_path = str(file_path.with_suffix('.pdf').resolve())
+        
+        if output_folder:
+            pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
+        else:
+            pdf_path = str(file_path.with_suffix('.pdf').resolve())
 
         try:
             if os.path.exists(pdf_path):
@@ -81,11 +89,15 @@ def convert_excel_to_pdf(target_folder):
 
             wb = excel.Workbooks.Open(abs_path)
             
-            # Type=0 (xlTypePDF)
-            # 現在のアクティブシート、または保存設定されている印刷範囲が出力されます
-            wb.ExportAsFixedFormat(0, pdf_path)
+            # 【重要】全シートをPDF対象にするため、すべてのシートを選択状態にする
+            # これを行わないと、保存時に開いていたシートしかPDFにならない場合があります
+            wb.Worksheets.Select()
             
-            wb.Close(False) # 変更を保存せずに閉じる
+            # Type=0 (xlTypePDF), IgnorePrintAreas=False (デフォルト)
+            # IgnorePrintAreas=False なので、Excel側で設定した「印刷範囲」が守られます
+            wb.ActiveSheet.ExportAsFixedFormat(0, pdf_path, IgnorePrintAreas=False)
+            
+            wb.Close(False)
             print(f"[成功] {file_path.name}")
         except Exception as e:
             print(f"[エラー] {file_path.name}: {e}")
@@ -97,6 +109,7 @@ def convert_excel_to_pdf(target_folder):
 def main():
     parser = argparse.ArgumentParser(description='指定フォルダ内のPPT/ExcelファイルをPDFに一括変換します。')
     parser.add_argument('folder', type=str, help='変換したいファイルが入っているフォルダのパス')
+    parser.add_argument('--output', '-o', type=str, help='PDFの出力先フォルダ（指定しない場合は入力フォルダと同じ）', default=None)
     args = parser.parse_args()
 
     target_path = Path(args.folder)
@@ -105,10 +118,22 @@ def main():
         print(f"エラー: 指定されたフォルダが存在しません -> {target_path}")
         sys.exit(1)
 
+    output_path = None
+    if args.output:
+        output_path = Path(args.output)
+        if not output_path.exists():
+            try:
+                output_path.mkdir(parents=True, exist_ok=True)
+                print(f"出力フォルダを作成しました: {output_path.resolve()}")
+            except Exception as e:
+                print(f"エラー: 出力フォルダの作成に失敗しました -> {e}")
+                sys.exit(1)
+        print(f"出力先フォルダ: {output_path.resolve()}")
+
     print(f"対象フォルダ: {target_path.resolve()}\n")
     
-    convert_ppt_to_pdf(target_path)
-    convert_excel_to_pdf(target_path)
+    convert_ppt_to_pdf(target_path, output_path)
+    convert_excel_to_pdf(target_path, output_path)
     
     print("すべての処理が完了しました。")
 
