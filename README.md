@@ -15,8 +15,10 @@ Windows にインストールされている Microsoft Office をバックグラ
 `uv` が自動的に必要なライブラリ (`pywin32`) を用意して実行する。
 
 ```bash
-uv run --with pywin32 converter.py "C:\Path\To\Your\TargetFolder"
+uv run --with pywin32 converter.py "C:\Path\To\Your\TargetFolder" --output "C:\Path\To\OutputFolder"
 ```
+
+※ 出力先フォルダを指定しない場合は、元のファイルと同じフォルダに保存される。
 
 ※ フォルダパスにスペースが含まれる場合は、ダブルクォーテーション " で囲う。
 

@@ -5,7 +5,7 @@ import argparse
 import win32com.client
 from pathlib import Path
 
-def convert_ppt_to_pdf(target_folder):
+def convert_ppt_to_pdf(target_folder, output_folder=None):
     """
     指定フォルダ内のPowerPointファイルをPDFに変換します。
     """
@@ -28,7 +28,11 @@ def convert_ppt_to_pdf(target_folder):
 
     for file_path in files:
         abs_path = str(file_path.resolve())
-        pdf_path = str(file_path.with_suffix('.pdf').resolve())
+        
+        if output_folder:
+            pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
+        else:
+            pdf_path = str(file_path.with_suffix('.pdf').resolve())
 
         try:
             # 既にPDFが存在する場合はスキップ（上書きしたい場合はコメントアウト）
@@ -49,7 +53,7 @@ def convert_ppt_to_pdf(target_folder):
     print("--- PowerPoint変換終了 ---\n")
 
 
-def convert_excel_to_pdf(target_folder):
+def convert_excel_to_pdf(target_folder, output_folder=None):
     """
     指定フォルダ内のExcelファイルをPDFに変換します。
     ※印刷範囲設定を反映し、全シートを1つのPDFに出力します。
@@ -72,7 +76,11 @@ def convert_excel_to_pdf(target_folder):
 
     for file_path in files:
         abs_path = str(file_path.resolve())
-        pdf_path = str(file_path.with_suffix('.pdf').resolve())
+        
+        if output_folder:
+            pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
+        else:
+            pdf_path = str(file_path.with_suffix('.pdf').resolve())
 
         try:
             if os.path.exists(pdf_path):
@@ -101,6 +109,7 @@ def convert_excel_to_pdf(target_folder):
 def main():
     parser = argparse.ArgumentParser(description='指定フォルダ内のPPT/ExcelファイルをPDFに一括変換します。')
     parser.add_argument('folder', type=str, help='変換したいファイルが入っているフォルダのパス')
+    parser.add_argument('--output', '-o', type=str, help='PDFの出力先フォルダ（指定しない場合は入力フォルダと同じ）', default=None)
     args = parser.parse_args()
 
     target_path = Path(args.folder)
@@ -109,10 +118,22 @@ def main():
         print(f"エラー: 指定されたフォルダが存在しません -> {target_path}")
         sys.exit(1)
 
+    output_path = None
+    if args.output:
+        output_path = Path(args.output)
+        if not output_path.exists():
+            try:
+                output_path.mkdir(parents=True, exist_ok=True)
+                print(f"出力フォルダを作成しました: {output_path.resolve()}")
+            except Exception as e:
+                print(f"エラー: 出力フォルダの作成に失敗しました -> {e}")
+                sys.exit(1)
+        print(f"出力先フォルダ: {output_path.resolve()}")
+
     print(f"対象フォルダ: {target_path.resolve()}\n")
     
-    convert_ppt_to_pdf(target_path)
-    convert_excel_to_pdf(target_path)
+    convert_ppt_to_pdf(target_path, output_path)
+    convert_excel_to_pdf(target_path, output_path)
     
     print("すべての処理が完了しました。")
 
