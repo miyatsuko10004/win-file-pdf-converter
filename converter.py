@@ -4,6 +4,7 @@ import glob
 import argparse
 import win32com.client
 from pathlib import Path
+from dotenv import load_dotenv
 
 def convert_ppt_to_pdf(target_folder, output_folder=None):
     """
@@ -107,20 +108,33 @@ def convert_excel_to_pdf(target_folder, output_folder=None):
 
 
 def main():
+    # .envファイルから環境変数を読み込む
+    load_dotenv()
+
     parser = argparse.ArgumentParser(description='指定フォルダ内のPPT/ExcelファイルをPDFに一括変換します。')
-    parser.add_argument('folder', type=str, help='変換したいファイルが入っているフォルダのパス')
-    parser.add_argument('--output', '-o', type=str, help='PDFの出力先フォルダ（指定しない場合は入力フォルダと同じ）', default=None)
+    parser.add_argument('folder', type=str, nargs='?', help='変換したいファイルが入っているフォルダのパス（未指定の場合は環境変数 INPUT_FOLDER を使用）')
+    parser.add_argument('--output', '-o', type=str, help='PDFの出力先フォルダ（指定なし または環境変数 OUTPUT_FOLDER もない場合は入力フォルダと同じ）', default=None)
     args = parser.parse_args()
 
-    target_path = Path(args.folder)
+    # フォルダパスの決定（コマンドライン引数 優先）
+    folder_str = args.folder or os.getenv('INPUT_FOLDER')
+
+    if not folder_str:
+        print("エラー: 変換対象フォルダが指定されていません。引数で指定するか、.envファイルの INPUT_FOLDER を設定してください。")
+        sys.exit(1)
+
+    target_path = Path(folder_str)
 
     if not target_path.exists():
         print(f"エラー: 指定されたフォルダが存在しません -> {target_path}")
         sys.exit(1)
 
+    # 出力フォルダパスの決定（コマンドライン引数 優先）
+    output_str = args.output or os.getenv('OUTPUT_FOLDER')
     output_path = None
-    if args.output:
-        output_path = Path(args.output)
+    
+    if output_str:
+        output_path = Path(output_str)
         if not output_path.exists():
             try:
                 output_path.mkdir(parents=True, exist_ok=True)
