@@ -93,7 +93,8 @@ class TestConverter(unittest.TestCase):
     @patch("converter.convert_excel_to_pdf")
     @patch("argparse.ArgumentParser.parse_args")
     @patch("converter.Path")
-    def test_main(self, mock_path_cls, mock_parse_args, mock_ppt, mock_excel):
+    @patch("converter.load_dotenv")
+    def test_main_basic(self, mock_load_dotenv, mock_path_cls, mock_parse_args, mock_ppt, mock_excel):
         # Setup mocks
         mock_args = MagicMock()
         mock_args.folder = "dummy_folder"
@@ -102,13 +103,81 @@ class TestConverter(unittest.TestCase):
         
         mock_path_instance = mock_path_cls.return_value
         mock_path_instance.exists.return_value = True
+        mock_path_instance.resolve.return_value = "/abs/path/to/dummy_folder"
         
         # Run main
         converter.main()
         
         # Verify calls
+        mock_load_dotenv.assert_called_once()
         mock_ppt.assert_called()
         mock_excel.assert_called()
+
+    @patch("converter.convert_ppt_to_pdf")
+    @patch("converter.convert_excel_to_pdf")
+    @patch("argparse.ArgumentParser.parse_args")
+    @patch("converter.Path")
+    @patch("converter.load_dotenv")
+    def test_main_use_env_vars(self, mock_load_dotenv, mock_path_cls, mock_parse_args, mock_ppt, mock_excel):
+        # Case: Argument is None, Env Var is Set
+        mock_args = MagicMock()
+        mock_args.folder = None
+        mock_args.output = None
+        mock_parse_args.return_value = mock_args
+        
+        mock_path_instance = mock_path_cls.return_value
+        mock_path_instance.exists.return_value = True
+        mock_path_instance.resolve.return_value = "/env/path"
+
+        with patch.dict(os.environ, {"INPUT_FOLDER": "/env/path", "OUTPUT_FOLDER": "/env/out"}, clear=True):
+            converter.main()
+
+        # Path("/env/path") should be called
+        mock_path_cls.assert_any_call("/env/path")
+        # Output path from env
+        mock_path_cls.assert_any_call("/env/out")
+        
+        mock_ppt.assert_called()
+
+    @patch("converter.convert_ppt_to_pdf")
+    @patch("converter.convert_excel_to_pdf")
+    @patch("argparse.ArgumentParser.parse_args")
+    @patch("converter.Path")
+    @patch("converter.load_dotenv")
+    def test_main_priority(self, mock_load_dotenv, mock_path_cls, mock_parse_args, mock_ppt, mock_excel):
+        # Case: Argument is Set, Env Var is Set -> Argument wins
+        mock_args = MagicMock()
+        mock_args.folder = "/arg/path"
+        mock_args.output = "/arg/out"
+        mock_parse_args.return_value = mock_args
+        
+        mock_path_instance = mock_path_cls.return_value
+        mock_path_instance.exists.return_value = True
+        
+        with patch.dict(os.environ, {"INPUT_FOLDER": "/env/path", "OUTPUT_FOLDER": "/env/out"}, clear=True):
+            converter.main()
+
+        # Path("/arg/path") should be called
+        mock_path_cls.assert_any_call("/arg/path")
+        # Output path from arg
+        mock_path_cls.assert_any_call("/arg/out")
+
+    @patch("converter.convert_ppt_to_pdf")
+    @patch("converter.convert_excel_to_pdf")
+    @patch("argparse.ArgumentParser.parse_args")
+    @patch("converter.Path")
+    @patch("converter.load_dotenv")
+    def test_main_missing_config(self, mock_load_dotenv, mock_path_cls, mock_parse_args, mock_ppt, mock_excel):
+        # Case: No Arg, No Env -> Exit
+        mock_args = MagicMock()
+        mock_args.folder = None
+        mock_args.output = None
+        mock_parse_args.return_value = mock_args
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(SystemExit) as cm:
+                converter.main()
+            self.assertEqual(cm.exception.code, 1)
 
 if __name__ == "__main__":
     unittest.main()

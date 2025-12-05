@@ -5,6 +5,7 @@ description = "Convert PPT and Excel files to PDF using Windows COM"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "python-dotenv>=1.2.1",
     "pywin32>=306; sys_platform == 'win32'",
 ]
 
