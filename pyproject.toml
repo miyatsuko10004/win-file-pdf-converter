@@ -16,3 +16,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 exclude = ["tests", ".github", ".git"]
+
+[dependency-groups]
+dev = [
+    "coverage>=7.12.0",
+]

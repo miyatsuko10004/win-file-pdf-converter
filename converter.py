@@ -10,8 +10,10 @@ def convert_ppt_to_pdf(target_folder, output_folder=None):
     """
     指定フォルダ内のPowerPointファイルをPDFに変換します。
     """
-    # 検索パターン（.pptx と .ppt）
-    files = list(Path(target_folder).glob("*.pptx")) + list(Path(target_folder).glob("*.ppt"))
+    # 検索パターン（.pptx, .pptm, .ppt）
+    files = list(Path(target_folder).glob("*.pptx")) + \
+            list(Path(target_folder).glob("*.pptm")) + \
+            list(Path(target_folder).glob("*.ppt"))
     
     if not files:
         print("-> PowerPointファイルは見つかりませんでした。")
@@ -59,7 +61,9 @@ def convert_excel_to_pdf(target_folder, output_folder=None):
     指定フォルダ内のExcelファイルをPDFに変換します。
     ※印刷範囲設定を反映し、全シートを1つのPDFに出力します。
     """
-    files = list(Path(target_folder).glob("*.xlsx")) + list(Path(target_folder).glob("*.xls"))
+    files = list(Path(target_folder).glob("*.xlsx")) + \
+            list(Path(target_folder).glob("*.xlsm")) + \
+            list(Path(target_folder).glob("*.xls"))
     
     if not files:
         print("-> Excelファイルは見つかりませんでした。")
@@ -107,11 +111,59 @@ def convert_excel_to_pdf(target_folder, output_folder=None):
     print("--- Excel変換終了 ---\n")
 
 
+def convert_word_to_pdf(target_folder, output_folder=None):
+    """
+    指定フォルダ内のWordファイルをPDFに変換します。
+    """
+    files = list(Path(target_folder).glob("*.docx")) + \
+            list(Path(target_folder).glob("*.docm")) + \
+            list(Path(target_folder).glob("*.doc"))
+
+    if not files:
+        print("-> Wordファイルは見つかりませんでした。")
+        return
+
+    print(f"--- Word変換開始: {len(files)}件 ---")
+
+    try:
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = False
+    except Exception as e:
+        print(f"Wordの起動に失敗しました: {e}")
+        return
+
+    for file_path in files:
+        abs_path = str(file_path.resolve())
+
+        if output_folder:
+            pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
+        else:
+            pdf_path = str(file_path.with_suffix('.pdf').resolve())
+
+        try:
+            if os.path.exists(pdf_path):
+                print(f"[スキップ] 既に存在します: {file_path.name}")
+                continue
+
+            doc = word.Documents.Open(abs_path)
+            
+            # wdFormatPDF = 17
+            doc.SaveAs2(pdf_path, FileFormat=17)
+            doc.Close()
+            print(f"[成功] {file_path.name}")
+        except Exception as e:
+            print(f"[エラー] {file_path.name}: {e}")
+
+    word.Quit()
+    print("--- Word変換終了 ---\n")
+
+
 def main():
     # .envファイルから環境変数を読み込む
     load_dotenv()
 
-    parser = argparse.ArgumentParser(description='指定フォルダ内のPPT/ExcelファイルをPDFに一括変換します。')
+    parser = argparse.ArgumentParser(description='指定フォルダ内のPPT/Excel/WordファイルをPDFに一括変換します。')
     parser.add_argument('folder', type=str, nargs='?', help='変換したいファイルが入っているフォルダのパス（未指定の場合は環境変数 INPUT_FOLDER を使用）')
     parser.add_argument('--output', '-o', type=str, help='PDFの出力先フォルダ（指定なし または環境変数 OUTPUT_FOLDER もない場合は入力フォルダと同じ）', default=None)
     args = parser.parse_args()
@@ -148,6 +200,7 @@ def main():
     
     convert_ppt_to_pdf(target_path, output_path)
     convert_excel_to_pdf(target_path, output_path)
+    convert_word_to_pdf(target_path, output_path)
     
     print("すべての処理が完了しました。")
 

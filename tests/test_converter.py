@@ -19,6 +19,10 @@ class TestConverter(unittest.TestCase):
         self.mock_dispatch = converter.win32com.client.Dispatch
         self.mock_app = MagicMock()
         self.mock_dispatch.return_value = self.mock_app
+        
+        # Reset mocks to clear history from previous tests
+        self.mock_dispatch.reset_mock()
+        self.mock_app.reset_mock()
 
     @patch("converter.Path")
     @patch("os.path.exists")
@@ -35,8 +39,8 @@ class TestConverter(unittest.TestCase):
         mock_pdf_path.resolve.return_value = "/abs/path/to/test.pdf"
         mock_ppt_file.with_suffix.return_value = mock_pdf_path
         
-        # glob side effect: first call returns [file], second returns []
-        mock_path_instance.glob.side_effect = [[mock_ppt_file], []]
+        # glob side effect: .pptx, .pptm, .ppt
+        mock_path_instance.glob.side_effect = [[mock_ppt_file], [], []]
         
         mock_exists.return_value = False # PDF does not exist, so proceed
         
@@ -69,8 +73,8 @@ class TestConverter(unittest.TestCase):
         mock_pdf_path.resolve.return_value = "/abs/path/to/test.pdf"
         mock_excel_file.with_suffix.return_value = mock_pdf_path
 
-        # glob side effect
-        mock_path_instance.glob.side_effect = [[mock_excel_file], []]
+        # glob side effect: .xlsx, .xlsm, .xls
+        mock_path_instance.glob.side_effect = [[mock_excel_file], [], []]
         
         mock_exists.return_value = False
         
@@ -89,12 +93,48 @@ class TestConverter(unittest.TestCase):
         mock_workbook.Close.assert_called()
         self.mock_app.Quit.assert_called()
 
+    @patch("converter.Path")
+    @patch("os.path.exists")
+    def test_convert_word_to_pdf(self, mock_exists, mock_path_cls):
+        # Setup mocks
+        mock_path_instance = mock_path_cls.return_value
+        
+        mock_word_file = MagicMock()
+        mock_word_file.name = "test.docx"
+        mock_word_file.resolve.return_value = "/abs/path/to/test.docx"
+        
+        mock_pdf_path = MagicMock()
+        mock_pdf_path.name = "test.pdf"
+        mock_pdf_path.resolve.return_value = "/abs/path/to/test.pdf"
+        mock_word_file.with_suffix.return_value = mock_pdf_path
+
+        # glob side effect: .docx, .docm, .doc
+        mock_path_instance.glob.side_effect = [[mock_word_file], [], []]
+        
+        mock_exists.return_value = False
+        
+        # Mock Document object
+        mock_document = MagicMock()
+        self.mock_app.Documents.Open.return_value = mock_document
+        
+        # Run function
+        converter.convert_word_to_pdf("dummy_folder")
+        
+        # Verify interactions
+        self.mock_dispatch.assert_called_with("Word.Application")
+        self.mock_app.Documents.Open.assert_called()
+        # 17 = wdFormatPDF
+        mock_document.SaveAs2.assert_called_with(mock_pdf_path.resolve.return_value, FileFormat=17)
+        mock_document.Close.assert_called()
+        self.mock_app.Quit.assert_called()
+
+    @patch("converter.convert_word_to_pdf")
     @patch("converter.convert_ppt_to_pdf")
     @patch("converter.convert_excel_to_pdf")
     @patch("argparse.ArgumentParser.parse_args")
     @patch("converter.Path")
     @patch("converter.load_dotenv")
-    def test_main_basic(self, mock_load_dotenv, mock_path_cls, mock_parse_args, mock_ppt, mock_excel):
+    def test_main_basic(self, mock_load_dotenv, mock_path_cls, mock_parse_args, mock_ppt, mock_excel, mock_word):
         # Setup mocks
         mock_args = MagicMock()
         mock_args.folder = "dummy_folder"
@@ -112,6 +152,7 @@ class TestConverter(unittest.TestCase):
         mock_load_dotenv.assert_called_once()
         mock_ppt.assert_called()
         mock_excel.assert_called()
+        mock_word.assert_called()
 
     @patch("converter.convert_ppt_to_pdf")
     @patch("converter.convert_excel_to_pdf")
@@ -178,6 +219,97 @@ class TestConverter(unittest.TestCase):
             with self.assertRaises(SystemExit) as cm:
                 converter.main()
             self.assertEqual(cm.exception.code, 1)
+
+    def test_no_files_found(self):
+        # Setup mocks
+        with patch("converter.Path") as mock_path_cls:
+            mock_path_instance = mock_path_cls.return_value
+            mock_path_instance.glob.side_effect = [[], [], [], [], [], [], [], [], []] # All empty
+
+            # Run functions
+            converter.convert_ppt_to_pdf("dummy")
+            converter.convert_excel_to_pdf("dummy")
+            converter.convert_word_to_pdf("dummy")
+
+            # Dispatch should NOT be called
+            self.mock_dispatch.assert_not_called()
+
+    def test_app_launch_failure(self):
+        # Setup mocks
+        with patch("converter.Path") as mock_path_cls:
+            mock_path_instance = mock_path_cls.return_value
+            # Return dummy files to trigger dispatch
+            mock_file = MagicMock()
+            mock_path_instance.glob.return_value = [mock_file]
+            
+            # Dispatch raises exception
+            self.mock_dispatch.side_effect = Exception("Launch failed")
+
+            # Run functions (should not crash)
+            converter.convert_ppt_to_pdf("dummy")
+            converter.convert_excel_to_pdf("dummy")
+            converter.convert_word_to_pdf("dummy")
+            
+            # Reset side effect for other tests
+            self.mock_dispatch.side_effect = None
+
+    @patch("converter.Path")
+    @patch("os.path.exists")
+    def test_pdf_already_exists(self, mock_exists, mock_path_cls):
+        # Setup mocks
+        mock_path_instance = mock_path_cls.return_value
+        mock_file = MagicMock()
+        mock_file.name = "test.pptx"
+        mock_path_instance.glob.side_effect = [[mock_file], [], []] # PPT only
+        
+        mock_exists.return_value = True # PDF exists
+
+        converter.convert_ppt_to_pdf("dummy")
+
+        # Should print skip message and NOT open presentation
+        self.mock_app.Presentations.Open.assert_not_called()
+
+    @patch("converter.Path")
+    @patch("os.path.exists")
+    def test_conversion_exception(self, mock_exists, mock_path_cls):
+        # Setup mocks
+        mock_path_instance = mock_path_cls.return_value
+        mock_file = MagicMock()
+        mock_file.name = "test.pptx"
+        mock_path_instance.glob.side_effect = [[mock_file], [], []]
+        mock_exists.return_value = False
+
+        # Open raises exception
+        self.mock_app.Presentations.Open.side_effect = Exception("Open failed")
+
+        converter.convert_ppt_to_pdf("dummy")
+
+        # Should handle exception and Quit app
+        self.mock_app.Quit.assert_called()
+
+    @patch("converter.Path")
+    @patch("os.path.exists")
+    def test_output_folder_logic(self, mock_exists, mock_path_cls):
+        # Setup mocks
+        mock_path_instance = mock_path_cls.return_value
+        mock_file = MagicMock()
+        mock_file.name = "test.pptx"
+        mock_file.with_suffix.return_value.name = "test.pdf" # correctly handle with_suffix().name
+        mock_path_instance.glob.side_effect = [[mock_file], [], []]
+        mock_exists.return_value = False
+        
+        output_folder = MagicMock()
+        # output_folder / filename logic
+        expected_pdf_path = MagicMock()
+        expected_pdf_path.resolve.return_value = "/out/test.pdf"
+        output_folder.__truediv__.return_value = expected_pdf_path
+
+        converter.convert_ppt_to_pdf("dummy", output_folder)
+
+        # Check if SaveAs called with expected path
+        # We need to drill down to the mock presentation created by Open
+        mock_presentation = self.mock_app.Presentations.Open.return_value
+        mock_presentation.SaveAs.assert_called_with("/out/test.pdf", 32)
 
 if __name__ == "__main__":
     unittest.main()
