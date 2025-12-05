@@ -27,7 +27,7 @@
     *   Officeアプリケーションの `Visible` プロパティを `False` に設定したり、`DisplayAlerts` を `False` に設定したりして、バックグラウンドでの操作を試みています。
 *   **PDF変換**:
     *   PowerPointの場合は `Presentations.Open` と `SaveAs(..., 32)` (ppSaveAsPDF) を使用。
-    *   Excelの場合は `Workbooks.Open` と `Worksheets.Select()`、`ActiveSheet.ExportAsFixedFormat(0, ..., IgnorePrintAreas=False)` を使用。
+    *   Excelの場合は `Workbooks.Open` を使用。印刷範囲が設定されていないシートに対しては `FitToPagesWide=1` (横幅合わせ) を適用し、その後 `Worksheets.Select()`、`ActiveSheet.ExportAsFixedFormat(0, ..., IgnorePrintAreas=False)` を使用。
     *   Wordの場合は `Documents.Open` と `SaveAs2(..., FileFormat=17)` (wdFormatPDF) を使用。
     *   既に変換後のPDFファイルが存在する場合、変換処理をスキップします。
 
