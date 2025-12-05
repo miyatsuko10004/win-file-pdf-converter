@@ -82,16 +82,38 @@ class TestConverter(unittest.TestCase):
         mock_workbook = MagicMock()
         self.mock_app.Workbooks.Open.return_value = mock_workbook
         
+        # Setup Worksheets mock to be both iterable and have attributes
+        mock_worksheets = MagicMock()
+        mock_workbook.Worksheets = mock_worksheets
+        
+        # Create individual sheet mocks
+        mock_ws1 = MagicMock()
+        mock_ws1.PageSetup.PrintArea = "A1:B10" # Has print area
+        
+        mock_ws2 = MagicMock()
+        mock_ws2.PageSetup.PrintArea = None # No print area
+        
+        # When iterated, yield the sheets
+        mock_worksheets.__iter__.return_value = iter([mock_ws1, mock_ws2])
+        
         # Run function
         converter.convert_excel_to_pdf("dummy_folder")
         
         # Verify interactions
         self.mock_dispatch.assert_called_with("Excel.Application")
         self.mock_app.Workbooks.Open.assert_called()
-        mock_workbook.Worksheets.Select.assert_called()
+        
+        # Verify Select was called on the Worksheets collection object
+        mock_worksheets.Select.assert_called()
+        
         mock_workbook.ActiveSheet.ExportAsFixedFormat.assert_called()
         mock_workbook.Close.assert_called()
         self.mock_app.Quit.assert_called()
+
+        # Verify PageSetup logic for ws2 (no print area)
+        self.assertEqual(mock_ws2.PageSetup.Zoom, False)
+        self.assertEqual(mock_ws2.PageSetup.FitToPagesWide, 1)
+        self.assertEqual(mock_ws2.PageSetup.FitToPagesTall, False)
 
     @patch("converter.Path")
     @patch("os.path.exists")

@@ -93,6 +93,16 @@ def convert_excel_to_pdf(target_folder, output_folder=None):
                 continue
 
             wb = excel.Workbooks.Open(abs_path)
+
+            # 各シートの設定を確認・変更
+            for ws in wb.Worksheets:
+                # 印刷範囲が設定されていない場合のみ調整
+                if not ws.PageSetup.PrintArea:
+                    ws.PageSetup.Zoom = False
+                    ws.PageSetup.FitToPagesWide = 1
+                    # 縦方向は自動（False）にすることで、行数が多い場合に縮小されすぎるのを防ぎます
+                    # これにより「横幅を1ページに収める」設定となります
+                    ws.PageSetup.FitToPagesTall = False
             
             # 【重要】全シートをPDF対象にするため、すべてのシートを選択状態にする
             # これを行わないと、保存時に開いていたシートしかPDFにならない場合があります
