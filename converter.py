@@ -3,14 +3,19 @@ import sys
 import glob
 import argparse
 import win32com.client
+import gc  # ガベージコレクション用に追加
 from pathlib import Path
 from dotenv import load_dotenv
+
+# COM定数の定義
+ppSaveAsPDF = 32
+xlTypePDF = 0
+wdFormatPDF = 17
 
 def convert_ppt_to_pdf(target_folder, output_folder=None):
     """
     指定フォルダ内のPowerPointファイルをPDFに変換します。
     """
-    # 検索パターン（.pptx, .pptm, .ppt）
     files = list(Path(target_folder).glob("*.pptx")) + \
             list(Path(target_folder).glob("*.pptm")) + \
             list(Path(target_folder).glob("*.ppt"))
@@ -21,45 +26,66 @@ def convert_ppt_to_pdf(target_folder, output_folder=None):
 
     print(f"--- PowerPoint変換開始: {len(files)}件 ---")
     
+    powerpoint = None
     try:
         powerpoint = win32com.client.Dispatch("PowerPoint.Application")
-        # 処理高速化・干渉防止のためウィンドウを最小化（完全非表示はバージョンにより不安定なため）
         # powerpoint.Visible = True 
     except Exception as e:
         print(f"PowerPointの起動に失敗しました: {e}")
         return
 
-    for file_path in files:
-        abs_path = str(file_path.resolve())
-        
-        if output_folder:
-            pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
-        else:
-            pdf_path = str(file_path.with_suffix('.pdf').resolve())
+    try:
+        for i, file_path in enumerate(files):
+            # 進捗表示（1000件あると進んでるか不安になるため）
+            if i % 10 == 0:
+                print(f"処理中... {i+1}/{len(files)}")
 
-        try:
-            # 既にPDFが存在する場合はスキップ（上書きしたい場合はコメントアウト）
+            abs_path = str(file_path.resolve())
+            
+            if output_folder:
+                pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
+            else:
+                pdf_path = str(file_path.with_suffix('.pdf').resolve())
+
             if os.path.exists(pdf_path):
                 print(f"[スキップ] 既に存在します: {file_path.name}")
                 continue
-
-            deck = powerpoint.Presentations.Open(abs_path, WithWindow=False)
             
-            # formatType 32 = ppSaveAsPDF
-            deck.SaveAs(pdf_path, 32)
-            deck.Close()
-            print(f"[成功] {file_path.name}")
-        except Exception as e:
-            print(f"[エラー] {file_path.name}: {e}")
+            deck = None
+            try:
+                deck = powerpoint.Presentations.Open(abs_path, WithWindow=False)
+                deck.SaveAs(pdf_path, ppSaveAsPDF)
+                print(f"[成功] {file_path.name}")
+            except Exception as e:
+                print(f"[エラー] {file_path.name}: {e}")
+            finally:
+                # 確実に閉じてメモリ解放
+                if deck:
+                    try:
+                        deck.Close()
+                    except:
+                        pass
+                    del deck  # 参照を削除
+                
+                # ガベージコレクションを強制実行してメモリリークを防ぐ
+                gc.collect()
 
-    powerpoint.Quit()
+    finally:
+        # ループ中にエラーが起きても必ず終了させる
+        if powerpoint:
+            try:
+                powerpoint.Quit()
+            except:
+                pass
+            del powerpoint
+            gc.collect()
+
     print("--- PowerPoint変換終了 ---\n")
 
 
 def convert_excel_to_pdf(target_folder, output_folder=None):
     """
     指定フォルダ内のExcelファイルをPDFに変換します。
-    ※印刷範囲設定を反映し、全シートを1つのPDFに出力します。
     """
     files = list(Path(target_folder).glob("*.xlsx")) + \
             list(Path(target_folder).glob("*.xlsm")) + \
@@ -71,6 +97,7 @@ def convert_excel_to_pdf(target_folder, output_folder=None):
 
     print(f"--- Excel変換開始: {len(files)}件 ---")
 
+    excel = None
     try:
         excel = win32com.client.Dispatch("Excel.Application")
         excel.Visible = False
@@ -79,45 +106,55 @@ def convert_excel_to_pdf(target_folder, output_folder=None):
         print(f"Excelの起動に失敗しました: {e}")
         return
 
-    for file_path in files:
-        abs_path = str(file_path.resolve())
-        
-        if output_folder:
-            pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
-        else:
-            pdf_path = str(file_path.with_suffix('.pdf').resolve())
+    try:
+        for i, file_path in enumerate(files):
+            if i % 10 == 0:
+                print(f"処理中... {i+1}/{len(files)}")
 
-        try:
+            abs_path = str(file_path.resolve())
+            
+            if output_folder:
+                pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
+            else:
+                pdf_path = str(file_path.with_suffix('.pdf').resolve())
+
             if os.path.exists(pdf_path):
                 print(f"[スキップ] 既に存在します: {file_path.name}")
                 continue
 
-            wb = excel.Workbooks.Open(abs_path)
+            wb = None
+            try:
+                wb = excel.Workbooks.Open(abs_path)
 
-            # 各シートの設定を確認・変更
-            for ws in wb.Worksheets:
-                # 印刷範囲が設定されていない場合のみ調整
-                if not ws.PageSetup.PrintArea:
-                    ws.PageSetup.Zoom = False
-                    ws.PageSetup.FitToPagesWide = 1
-                    # 縦方向は自動（False）にすることで、行数が多い場合に縮小されすぎるのを防ぎます
-                    # これにより「横幅を1ページに収める」設定となります
-                    ws.PageSetup.FitToPagesTall = False
-            
-            # 【重要】全シートをPDF対象にするため、すべてのシートを選択状態にする
-            # これを行わないと、保存時に開いていたシートしかPDFにならない場合があります
-            wb.Worksheets.Select()
-            
-            # Type=0 (xlTypePDF), IgnorePrintAreas=False (デフォルト)
-            # IgnorePrintAreas=False なので、Excel側で設定した「印刷範囲」が守られます
-            wb.ActiveSheet.ExportAsFixedFormat(0, pdf_path, IgnorePrintAreas=False)
-            
-            wb.Close(False)
-            print(f"[成功] {file_path.name}")
-        except Exception as e:
-            print(f"[エラー] {file_path.name}: {e}")
+                for ws in wb.Worksheets:
+                    if not ws.PageSetup.PrintArea:
+                        ws.PageSetup.Zoom = False
+                        ws.PageSetup.FitToPagesWide = 1
+                        ws.PageSetup.FitToPagesTall = False
+                
+                wb.Worksheets.Select()
+                wb.ActiveSheet.ExportAsFixedFormat(xlTypePDF, pdf_path, IgnorePrintAreas=False)
+                print(f"[成功] {file_path.name}")
+            except Exception as e:
+                print(f"[エラー] {file_path.name}: {e}")
+            finally:
+                if wb:
+                    try:
+                        wb.Close(False)
+                    except:
+                        pass
+                    del wb
+                gc.collect()
 
-    excel.Quit()
+    finally:
+        if excel:
+            try:
+                excel.Quit()
+            except:
+                pass
+            del excel
+            gc.collect()
+
     print("--- Excel変換終了 ---\n")
 
 
@@ -135,6 +172,7 @@ def convert_word_to_pdf(target_folder, output_folder=None):
 
     print(f"--- Word変換開始: {len(files)}件 ---")
 
+    word = None
     try:
         word = win32com.client.Dispatch("Word.Application")
         word.Visible = False
@@ -143,46 +181,61 @@ def convert_word_to_pdf(target_folder, output_folder=None):
         print(f"Wordの起動に失敗しました: {e}")
         return
 
-    for file_path in files:
-        abs_path = str(file_path.resolve())
+    try:
+        for i, file_path in enumerate(files):
+            if i % 10 == 0:
+                print(f"処理中... {i+1}/{len(files)}")
 
-        if output_folder:
-            pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
-        else:
-            pdf_path = str(file_path.with_suffix('.pdf').resolve())
+            abs_path = str(file_path.resolve())
 
-        try:
+            if output_folder:
+                pdf_path = str((output_folder / file_path.with_suffix('.pdf').name).resolve())
+            else:
+                pdf_path = str(file_path.with_suffix('.pdf').resolve())
+
             if os.path.exists(pdf_path):
                 print(f"[スキップ] 既に存在します: {file_path.name}")
                 continue
 
-            doc = word.Documents.Open(abs_path)
-            
-            # wdFormatPDF = 17
-            doc.SaveAs2(pdf_path, FileFormat=17)
-            doc.Close()
-            print(f"[成功] {file_path.name}")
-        except Exception as e:
-            print(f"[エラー] {file_path.name}: {e}")
+            doc = None
+            try:
+                doc = word.Documents.Open(abs_path)
+                doc.SaveAs2(pdf_path, FileFormat=wdFormatPDF)
+                print(f"[成功] {file_path.name}")
+            except Exception as e:
+                print(f"[エラー] {file_path.name}: {e}")
+            finally:
+                if doc:
+                    try:
+                        doc.Close()
+                    except:
+                        pass
+                    del doc
+                gc.collect()
+    finally:
+        if word:
+            try:
+                word.Quit()
+            except:
+                pass
+            del word
+            gc.collect()
 
-    word.Quit()
     print("--- Word変換終了 ---\n")
 
 
 def main():
-    # .envファイルから環境変数を読み込む
     load_dotenv()
 
     parser = argparse.ArgumentParser(description='指定フォルダ内のPPT/Excel/WordファイルをPDFに一括変換します。')
-    parser.add_argument('folder', type=str, nargs='?', help='変換したいファイルが入っているフォルダのパス（未指定の場合は環境変数 INPUT_FOLDER を使用）')
-    parser.add_argument('--output', '-o', type=str, help='PDFの出力先フォルダ（指定なし または環境変数 OUTPUT_FOLDER もない場合は入力フォルダと同じ）', default=None)
+    parser.add_argument('folder', type=str, nargs='?', help='変換したいファイルが入っているフォルダのパス')
+    parser.add_argument('--output', '-o', type=str, help='PDFの出力先フォルダ', default=None)
     args = parser.parse_args()
 
-    # フォルダパスの決定（コマンドライン引数 優先）
     folder_str = args.folder or os.getenv('INPUT_FOLDER')
 
     if not folder_str:
-        print("エラー: 変換対象フォルダが指定されていません。引数で指定するか、.envファイルの INPUT_FOLDER を設定してください。")
+        print("エラー: 変換対象フォルダが指定されていません。")
         sys.exit(1)
 
     target_path = Path(folder_str)
@@ -191,7 +244,6 @@ def main():
         print(f"エラー: 指定されたフォルダが存在しません -> {target_path}")
         sys.exit(1)
 
-    # 出力フォルダパスの決定（コマンドライン引数 優先）
     output_str = args.output or os.getenv('OUTPUT_FOLDER')
     output_path = None
     
